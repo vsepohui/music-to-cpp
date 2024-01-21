@@ -1,100 +1,82 @@
-// code from https://stackoverflow.com/questions/5469030/c-play-back-a-tone-generated-from-a-sinusoidal-wave
-// copyrights
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
-#include <cstdio>
-#include <cstdlib>
-#include <cmath>
-#include <iostream>
-#include <OpenAL/al.h>
-#include <OpenAL/alc.h>
+#include <AL/alut.h>
 
-#define CASE_RETURN(err) case (err): return "##err"
-const char* al_err_str(ALenum err) {
-    switch(err) {
-        CASE_RETURN(AL_NO_ERROR);
-        CASE_RETURN(AL_INVALID_NAME);
-        CASE_RETURN(AL_INVALID_ENUM);
-        CASE_RETURN(AL_INVALID_VALUE);
-        CASE_RETURN(AL_INVALID_OPERATION);
-        CASE_RETURN(AL_OUT_OF_MEMORY);
-    }
-    return "unknown";
-}
-#undef CASE_RETURN
+/*
+ * This program loads and plays a variety of files.
+ */
 
-#define __al_check_error(file,line) \
-    do { \
-        ALenum err = alGetError(); \
-        for(; err!=AL_NO_ERROR; err=alGetError()) { \
-            std::cerr << "AL Error " << al_err_str(err) << " at " << file << ":" << line << std::endl; \
-        } \
-    }while(0)
+static void
+playFile (const char *fileName)
+{
+  ALuint buffer;
+  ALuint source;
+  ALenum error;
+  ALint status;
 
-#define al_check_error() \
-    __al_check_error(__FILE__, __LINE__)
-
-
-void init_al() {
-    ALCdevice *dev = NULL;
-    ALCcontext *ctx = NULL;
-
-    const char *defname = alcGetString(NULL, ALC_DEFAULT_DEVICE_SPECIFIER);
-    std::cout << "Default device: " << defname << std::endl;
-
-    dev = alcOpenDevice(defname);
-    ctx = alcCreateContext(dev, NULL);
-    alcMakeContextCurrent(ctx);
-}
-
-void exit_al() {
-    ALCdevice *dev = NULL;
-    ALCcontext *ctx = NULL;
-    ctx = alcGetCurrentContext();
-    dev = alcGetContextsDevice(ctx);
-
-    alcMakeContextCurrent(NULL);
-    alcDestroyContext(ctx);
-    alcCloseDevice(dev);
-}
-
-int main(int argc, char* argv[]) {
-    /* initialize OpenAL */
-    init_al();
-
-    /* Create buffer to store samples */
-    ALuint buf;
-    alGenBuffers(1, &buf);
-    al_check_error();
-
-    /* Fill buffer with Sine-Wave */
-    float freq = 440.f;
-    int seconds = 4;
-    unsigned sample_rate = 22050;
-    size_t buf_size = seconds * sample_rate;
-
-    short *samples;
-    samples = new short[buf_size];
-    for(int i=0; i<buf_size; ++i) {
-        samples[i] = 32760 * sin( (2.f*float(M_PI)*freq)/sample_rate * i );
+  /* Create an AL buffer from the given sound file. */
+  buffer = alutCreateBufferFromFile (fileName);
+  if (buffer == AL_NONE)
+    {
+      error = alutGetError ();
+      fprintf (stderr, "Error loading file: '%s'\n",
+               alutGetErrorString (error));
+      alutExit ();
+      exit (EXIT_FAILURE);
     }
 
-    /* Download buffer to OpenAL */
-    alBufferData(buf, AL_FORMAT_MONO16, samples, buf_size, sample_rate);
-    al_check_error();
+  /* Generate a single source, attach the buffer to it and start playing. */
+  alGenSources (1, &source);
+  alSourcei (source, AL_BUFFER, buffer);
+  alSourcePlay (source);
 
+  /* Normally nothing should go wrong above, but one never knows... */
+  error = alGetError ();
+  if (error != ALUT_ERROR_NO_ERROR)
+    {
+      fprintf (stderr, "%s\n", alGetString (error));
+      alutExit ();
+      exit (EXIT_FAILURE);
+    }
 
-    /* Set-up sound source and play buffer */
-    ALuint src = 0;
-    alGenSources(1, &src);
-    alSourcei(src, AL_BUFFER, buf);
-    alSourcePlay(src);
+  /* Check every 0.1 seconds if the sound is still playing. */
+  do
+    {
+      alutSleep (0.1f);
+      alGetSourcei (source, AL_SOURCE_STATE, &status);
+    }
+  while (status == AL_PLAYING);
+}
 
-    /* While sound is playing, sleep */
-    al_check_error();
-    sleep(seconds);
+int
+main (int argc, char **argv)
+{
+  /* Initialise ALUT and eat any ALUT-specific commandline flags. */
+  if (!alutInit (&argc, argv))
+    {
+      ALenum error = alutGetError ();
+      fprintf (stderr, "%s\n", alutGetErrorString (error));
+      exit (EXIT_FAILURE);
+    }
 
-    /* Dealloc OpenAL */
-    exit_al();
-    al_check_error();
-    return 0;
-} 
+  /* Check for correct usage. */
+  if (argc != 2)
+    {
+      fprintf (stderr, "usage: playfile <fileName>\n");
+      alutExit ();
+      exit (EXIT_FAILURE);
+    }
+
+  /* If everything is OK, play the sound file and exit when finished. */
+  playFile (argv[1]);
+
+  if (!alutExit ())
+    {
+      ALenum error = alutGetError ();
+      fprintf (stderr, "%s\n", alutGetErrorString (error));
+      exit (EXIT_FAILURE);
+    }
+  return EXIT_SUCCESS;
+}
